@@ -1,12 +1,20 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-// Side-effect import: PostHog initializes here, before the first React render,
-// so session tracking starts as early as possible.
-import './analytics/posthog';
-import App from './App';
+// src/main.jsx
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+// import './index.css'
+import App from './App.jsx'
+import posthog from 'posthog-js'
+import { PostHogProvider } from '@posthog/react' 
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+posthog.init(import.meta.env.VITE_POSTHOG_PROJECT_TOKEN, { 
+  api_host: import.meta.env.VITE_POSTHOG_HOST, 
+  defaults: '2026-01-30', 
+}); 
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <PostHogProvider client={posthog}> 
+      <App />
+    </PostHogProvider> 
+  </StrictMode>,
+)

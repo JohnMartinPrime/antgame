@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import posthog from '../../analytics/posthog';
+import posthog from 'posthog-js';
 
 export default class MainScene extends Phaser.Scene {
   constructor() {
