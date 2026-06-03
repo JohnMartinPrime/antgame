@@ -38,8 +38,14 @@ export default class MainScene extends Phaser.Scene {
   preload(): void {}
 
   create(): void {
-    posthog.capture('game_start', { ant_count: ANT_COUNT, duration_s: GAME_DURATION_S });
+    // scene.restart() reuses the class instance — reset all fields explicitly
+    this.ants = [];
+    this.score = 0;
+    this.timeLeft = GAME_DURATION_S;
+    this.done = false;
     this.startedAt = Date.now();
+
+    posthog.capture('game_start', { ant_count: ANT_COUNT, duration_s: GAME_DURATION_S });
 
     this.drawDirt();
     for (let i = 0; i < ANT_COUNT; i++) this.spawnAnt();
