@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
 import posthog from 'posthog-js';
+import { ANT_POINTS, TIME_BONUS_PER_SECOND } from '../../types/game';
+import type { GameConfig, GameResult } from '../../types/game';
 
 const WIDTH = 800;
 const HEIGHT = 600;
-const ANT_COUNT = 7;
-const GAME_DURATION_S = 60;
 const FOCUS_RADIUS = 20;
 const CATCH_HOLD_MS = 900;
 
@@ -25,11 +25,15 @@ export default class MainScene extends Phaser.Scene {
   private catchRings!: Phaser.GameObjects.Graphics;
   private ants: Ant[] = [];
   private scoreText!: Phaser.GameObjects.Text;
+  private antText!: Phaser.GameObjects.Text;
   private timerText!: Phaser.GameObjects.Text;
-  private score = 0;
-  private timeLeft = GAME_DURATION_S;
+  private score = 0;        // running point total (ant points; time bonus added at end)
+  private antsCaught = 0;
+  private timeLeft = 0;
   private done = false;
   private startedAt = 0;
+  private config!: GameConfig;
+  private onGameEndCb!: (result: GameResult) => void;
 
   constructor() {
     super({ key: 'MainScene' });
@@ -38,34 +42,48 @@ export default class MainScene extends Phaser.Scene {
   preload(): void {}
 
   create(): void {
-    // scene.restart() reuses the class instance — reset all fields explicitly
+    this.config = this.registry.get('config') as GameConfig;
+    this.onGameEndCb = this.registry.get('onGameEnd') as (result: GameResult) => void;
+
+    // scene.restart() reuses the class instance — reset all mutable state explicitly
     this.ants = [];
     this.score = 0;
-    this.timeLeft = GAME_DURATION_S;
+    this.antsCaught = 0;
+    this.timeLeft = this.config.durationSeconds;
     this.done = false;
     this.startedAt = Date.now();
 
-    posthog.capture('game_start', { ant_count: ANT_COUNT, duration_s: GAME_DURATION_S });
+    posthog.capture('game_start', {
+      ant_count: this.config.antCount,
+      duration_s: this.config.durationSeconds,
+    });
 
     this.drawDirt();
-    for (let i = 0; i < ANT_COUNT; i++) this.spawnAnt();
+    for (let i = 0; i < this.config.antCount; i++) this.spawnAnt();
 
-    // catchRings sits above ants (depth 8), glass sits on top (depth 10)
+    // catchRings sits above ants (depth 8), glass on top (depth 10)
     this.catchRings = this.add.graphics().setDepth(8);
     this.glass = this.add.graphics().setDepth(10);
 
     this.scoreText = this.add
-      .text(16, 16, `Caught: 0 / ${ANT_COUNT}`, { fontSize: '20px', color: '#fff' })
+      .text(16, 16, 'Score: 0', { fontSize: '20px', color: '#fff' })
+      .setDepth(11);
+
+    this.antText = this.add
+      .text(16, 42, `0 / ${this.config.antCount} ants`, { fontSize: '14px', color: '#aaa' })
       .setDepth(11);
 
     this.timerText = this.add
-      .text(WIDTH - 16, 16, String(GAME_DURATION_S), { fontSize: '20px', color: '#fff' })
+      .text(WIDTH - 16, 16, String(this.config.durationSeconds), {
+        fontSize: '20px',
+        color: '#fff',
+      })
       .setOrigin(1, 0)
       .setDepth(11);
 
     this.time.addEvent({
       delay: 1000,
-      repeat: GAME_DURATION_S - 1,
+      repeat: this.config.durationSeconds - 1,
       callback: () => {
         if (this.done) return;
         this.timeLeft--;
@@ -78,7 +96,6 @@ export default class MainScene extends Phaser.Scene {
     this.input.setDefaultCursor('none');
   }
 
-  // Randomly placed dirt clods for visual texture
   private drawDirt(): void {
     const g = this.add.graphics();
     g.fillStyle(0x5c3a1e, 0.45);
@@ -96,7 +113,9 @@ export default class MainScene extends Phaser.Scene {
     const gfx = this.add.graphics().setDepth(5);
     this.renderAnt(gfx);
     this.ants.push({
-      gfx, x, y,
+      gfx,
+      x,
+      y,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
       speed,
@@ -109,9 +128,9 @@ export default class MainScene extends Phaser.Scene {
   private renderAnt(g: Phaser.GameObjects.Graphics): void {
     g.clear();
     g.fillStyle(0x0d0d0d);
-    g.fillEllipse(0, -5, 5, 7);   // head
-    g.fillEllipse(0, 2, 4, 6);    // thorax
-    g.fillEllipse(0, 9, 7, 9);    // abdomen
+    g.fillEllipse(0, -5, 5, 7);  // head
+    g.fillEllipse(0, 2, 4, 6);   // thorax
+    g.fillEllipse(0, 9, 7, 9);   // abdomen
     g.lineStyle(1, 0x0d0d0d, 1);
     for (const i of [-1, 0, 1]) {
       g.strokeLineShape(new Phaser.Geom.Line(-2, i * 3, -9, i * 3 + 4));
@@ -142,7 +161,6 @@ export default class MainScene extends Phaser.Scene {
       ant.x += ant.vx * dt;
       ant.y += ant.vy * dt;
 
-      // Bounce off edges
       const m = 20;
       if (ant.x < m)          { ant.x = m;          ant.vx =  Math.abs(ant.vx); }
       if (ant.x > WIDTH - m)  { ant.x = WIDTH - m;  ant.vx = -Math.abs(ant.vx); }
@@ -167,13 +185,11 @@ export default class MainScene extends Phaser.Scene {
         this.drawProgressRing(ant);
         if (ant.catchProgress >= 1) this.catchAnt(ant);
       } else {
-        // Decay faster than it fills so missing actually hurts
         ant.catchProgress = Math.max(0, ant.catchProgress - delta / (CATCH_HOLD_MS * 0.35));
       }
     }
   }
 
-  // Draws an arc around the ant showing catch progress (0–1)
   private drawProgressRing(ant: Ant): void {
     const steps = Math.ceil(ant.catchProgress * 40);
     if (steps === 0) return;
@@ -195,19 +211,15 @@ export default class MainScene extends Phaser.Scene {
   private drawGlass(x: number, y: number): void {
     this.glass.clear();
 
-    // Lens fill (subtle warmth)
     this.glass.fillStyle(0xffff99, 0.07);
     this.glass.fillCircle(x, y, 50);
 
-    // Lens rim
     this.glass.lineStyle(4, 0xccccee, 0.9);
     this.glass.strokeCircle(x, y, 50);
 
-    // Handle
     this.glass.lineStyle(7, 0x997744, 1);
     this.glass.strokeLineShape(new Phaser.Geom.Line(x + 36, y + 36, x + 64, y + 64));
 
-    // Focus point: outer white halo then hot yellow core
     this.glass.fillStyle(0xffffff, 0.55);
     this.glass.fillCircle(x, y, FOCUS_RADIUS);
     this.glass.fillStyle(0xffdd22, 0.9);
@@ -217,65 +229,50 @@ export default class MainScene extends Phaser.Scene {
   private catchAnt(ant: Ant): void {
     ant.caught = true;
     ant.gfx.destroy();
-    this.score++;
-    this.scoreText.setText(`Caught: ${this.score} / ${ANT_COUNT}`);
+    this.antsCaught++;
+    this.score += ANT_POINTS;
+    this.scoreText.setText(`Score: ${this.score}`);
+    this.antText.setText(`${this.antsCaught} / ${this.config.antCount} ants`);
 
     posthog.capture('ant_caught', {
       score: this.score,
+      ants_caught: this.antsCaught,
       time_remaining: this.timeLeft,
-      ants_remaining: ANT_COUNT - this.score,
+      ants_remaining: this.config.antCount - this.antsCaught,
     });
 
-    if (this.score >= ANT_COUNT) this.endGame(true);
+    if (this.antsCaught >= this.config.antCount) this.endGame(true);
   }
 
   private endGame(won: boolean): void {
     if (this.done) return;
     this.done = true;
 
-    const escaped = ANT_COUNT - this.score;
+    const timeRemainingSeconds = won ? this.timeLeft : 0;
+    const finalScore = this.score + timeRemainingSeconds * TIME_BONUS_PER_SECOND;
 
     posthog.capture('run_ended', {
       outcome: won ? 'win' : 'loss',
-      ants_caught: this.score,
-      ants_escaped: escaped,
-      time_remaining: this.timeLeft,
+      ants_caught: this.antsCaught,
+      ants_escaped: this.config.antCount - this.antsCaught,
+      time_remaining: timeRemainingSeconds,
+      score: finalScore,
       duration_ms: Date.now() - this.startedAt,
     });
 
-    if (escaped > 0) {
-      posthog.capture('ant_escaped', { count: escaped });
+    if (this.config.antCount - this.antsCaught > 0) {
+      posthog.capture('ant_escaped', { count: this.config.antCount - this.antsCaught });
     }
 
-    const bg = this.add.graphics().setDepth(20);
-    bg.fillStyle(0x000000, 0.65);
-    bg.fillRect(0, 0, WIDTH, HEIGHT);
-
-    this.add
-      .text(WIDTH / 2, HEIGHT / 2 - 50, won ? 'All ants caught!' : "Time's up!", {
-        fontSize: '38px',
-        color: won ? '#ffee44' : '#ff5555',
-      })
-      .setOrigin(0.5)
-      .setDepth(21);
-
-    this.add
-      .text(WIDTH / 2, HEIGHT / 2 + 10, `Score: ${this.score} / ${ANT_COUNT}`, {
-        fontSize: '24px',
-        color: '#ffffff',
-      })
-      .setOrigin(0.5)
-      .setDepth(21);
-
-    this.add
-      .text(WIDTH / 2, HEIGHT / 2 + 62, 'Click to play again', {
-        fontSize: '18px',
-        color: '#aaaaaa',
-      })
-      .setOrigin(0.5)
-      .setDepth(21);
-
     this.input.setDefaultCursor('default');
-    this.input.once('pointerdown', () => this.scene.restart());
+
+    this.onGameEndCb({
+      score: finalScore,
+      antsCaught: this.antsCaught,
+      antCount: this.config.antCount,
+      durationSeconds: this.config.durationSeconds,
+      timeRemainingSeconds,
+      won,
+    });
   }
 }
