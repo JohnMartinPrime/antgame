@@ -27,7 +27,7 @@ app.get('/health', async (_req, res) => {
 });
 
 app.post('/api/game/start', (req, res) => {
-  const { distinctId } = req.body as { distinctId?: string };
+  // const { distinctId } = req.body as { distinctId?: string };
   // posthog.capture({
   //   distinctId: distinctId ?? 'anonymous',
   //   event: 'game_start_server',

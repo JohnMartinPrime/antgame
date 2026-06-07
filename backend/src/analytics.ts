@@ -1,7 +1,7 @@
 import { PostHog } from 'posthog-node';
 import 'dotenv/config';
 
-const client = new PostHog(process.env.POSTHOG_API_KEY!, {
+const client = new PostHog(process.env.POSTHOG_PROJECT_TOKEN!, {
   host: process.env.POSTHOG_HOST ?? 'https://us.i.posthog.com',
   // Flush immediately in dev so events appear in PostHog right away.
   // Remove these two lines in production to use the default batching behavior.
