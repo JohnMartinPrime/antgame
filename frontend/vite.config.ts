@@ -7,6 +7,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: '0.0.0.0',
+    watch: { usePolling: true },
     proxy: {
       '/api': {
         // Inside Docker Compose: VITE_API_TARGET=http://backend:3001

@@ -20,15 +20,7 @@ export default function GameCanvas({ config, onGameEnd }: Props): React.JSX.Elem
       height: 600,
       backgroundColor: '#8B5E3C',
       parent: containerRef.current,
-      scene: [MainScene],
-      callbacks: {
-        // postBoot runs before the first scene's create(), so the registry
-        // values are available when MainScene reads them.
-        postBoot: (g) => {
-          g.registry.set('config', config);
-          g.registry.set('onGameEnd', onGameEnd);
-        },
-      },
+      scene: [new MainScene(config, onGameEnd)],
     });
 
     // destroy(true) removes the canvas from the DOM in addition to stopping the

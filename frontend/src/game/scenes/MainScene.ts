@@ -27,39 +27,37 @@ export default class MainScene extends Phaser.Scene {
   private scoreText!: Phaser.GameObjects.Text;
   private antText!: Phaser.GameObjects.Text;
   private timerText!: Phaser.GameObjects.Text;
-  private score = 0;        // running point total (ant points; time bonus added at end)
+  private score = 0;
   private antsCaught = 0;
   private timeLeft = 0;
   private done = false;
   private startedAt = 0;
-  private config!: GameConfig;
-  private onGameEndCb!: (result: GameResult) => void;
 
-  constructor() {
+  constructor(
+    private readonly gameConfig: GameConfig,
+    private readonly onGameEnd: (result: GameResult) => void,
+  ) {
     super({ key: 'MainScene' });
   }
 
   preload(): void {}
 
   create(): void {
-    this.config = this.registry.get('config') as GameConfig;
-    this.onGameEndCb = this.registry.get('onGameEnd') as (result: GameResult) => void;
-
     // scene.restart() reuses the class instance — reset all mutable state explicitly
     this.ants = [];
     this.score = 0;
     this.antsCaught = 0;
-    this.timeLeft = this.config.durationSeconds;
+    this.timeLeft = this.gameConfig.durationSeconds;
     this.done = false;
     this.startedAt = Date.now();
 
     posthog.capture('game_start', {
-      ant_count: this.config.antCount,
-      duration_s: this.config.durationSeconds,
+      ant_count: this.gameConfig.antCount,
+      duration_s: this.gameConfig.durationSeconds,
     });
 
     this.drawDirt();
-    for (let i = 0; i < this.config.antCount; i++) this.spawnAnt();
+    for (let i = 0; i < this.gameConfig.antCount; i++) this.spawnAnt();
 
     // catchRings sits above ants (depth 8), glass on top (depth 10)
     this.catchRings = this.add.graphics().setDepth(8);
@@ -70,11 +68,11 @@ export default class MainScene extends Phaser.Scene {
       .setDepth(11);
 
     this.antText = this.add
-      .text(16, 42, `0 / ${this.config.antCount} ants`, { fontSize: '14px', color: '#aaa' })
+      .text(16, 42, `0 / ${this.gameConfig.antCount} ants`, { fontSize: '14px', color: '#aaa' })
       .setDepth(11);
 
     this.timerText = this.add
-      .text(WIDTH - 16, 16, String(this.config.durationSeconds), {
+      .text(WIDTH - 16, 16, String(this.gameConfig.durationSeconds), {
         fontSize: '20px',
         color: '#fff',
       })
@@ -83,7 +81,7 @@ export default class MainScene extends Phaser.Scene {
 
     this.time.addEvent({
       delay: 1000,
-      repeat: this.config.durationSeconds - 1,
+      repeat: this.gameConfig.durationSeconds - 1,
       callback: () => {
         if (this.done) return;
         this.timeLeft--;
@@ -232,16 +230,16 @@ export default class MainScene extends Phaser.Scene {
     this.antsCaught++;
     this.score += ANT_POINTS;
     this.scoreText.setText(`Score: ${this.score}`);
-    this.antText.setText(`${this.antsCaught} / ${this.config.antCount} ants`);
+    this.antText.setText(`${this.antsCaught} / ${this.gameConfig.antCount} ants`);
 
     posthog.capture('ant_caught', {
       score: this.score,
       ants_caught: this.antsCaught,
       time_remaining: this.timeLeft,
-      ants_remaining: this.config.antCount - this.antsCaught,
+      ants_remaining: this.gameConfig.antCount - this.antsCaught,
     });
 
-    if (this.antsCaught >= this.config.antCount) this.endGame(true);
+    if (this.antsCaught >= this.gameConfig.antCount) this.endGame(true);
   }
 
   private endGame(won: boolean): void {
@@ -254,23 +252,23 @@ export default class MainScene extends Phaser.Scene {
     posthog.capture('run_ended', {
       outcome: won ? 'win' : 'loss',
       ants_caught: this.antsCaught,
-      ants_escaped: this.config.antCount - this.antsCaught,
+      ants_escaped: this.gameConfig.antCount - this.antsCaught,
       time_remaining: timeRemainingSeconds,
       score: finalScore,
       duration_ms: Date.now() - this.startedAt,
     });
 
-    if (this.config.antCount - this.antsCaught > 0) {
-      posthog.capture('ant_escaped', { count: this.config.antCount - this.antsCaught });
+    if (this.gameConfig.antCount - this.antsCaught > 0) {
+      posthog.capture('ant_escaped', { count: this.gameConfig.antCount - this.antsCaught });
     }
 
     this.input.setDefaultCursor('default');
 
-    this.onGameEndCb({
+    this.onGameEnd({
       score: finalScore,
       antsCaught: this.antsCaught,
-      antCount: this.config.antCount,
-      durationSeconds: this.config.durationSeconds,
+      antCount: this.gameConfig.antCount,
+      durationSeconds: this.gameConfig.durationSeconds,
       timeRemainingSeconds,
       won,
     });
